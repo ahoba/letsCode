@@ -340,7 +340,7 @@ namespace forcebookTests.Controllers
 
             var response = await _controller.NegotiateItems(request);
 
-            Assert.IsInstanceOf<BadRequestObjectResult>(response.Result);
+            Assert.IsInstanceOf<NotFoundObjectResult>(response.Result);
 
             request = new NegotiateItemsRequest()
             {
@@ -370,7 +370,7 @@ namespace forcebookTests.Controllers
 
             response = await _controller.NegotiateItems(request);
 
-            Assert.IsInstanceOf<BadRequestObjectResult>(response.Result);
+            Assert.IsInstanceOf<NotFoundObjectResult>(response.Result);
         }
 
         [Test]

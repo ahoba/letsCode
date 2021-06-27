@@ -104,7 +104,7 @@ namespace Forcebook.Controllers
                 return BadRequest();
             }
 
-            if (_context.Rebels.Any(x => x.Name == request.Name))
+            if (HasRebel(request.Name))
             {
                 return BadRequest($"There already is a rebel with name {request.Name}. Consider providing a nickname!");
             }
@@ -113,11 +113,9 @@ namespace Forcebook.Controllers
 
             foreach (ItemDTO itemDTO in request.Inventory)
             {
-                ItemTemplate template = _context.ItemTemplates.FirstOrDefault(x => x.Name == itemDTO.Name);
-
-                if (template == null)
+                if (!TryGetItemTemplate(itemDTO.Name, out ItemTemplate template))
                 {
-                    return NotFound($"Unable to find item with name {itemDTO.Name}.");
+                    return ItemTemplateNotFound(itemDTO.Name);
                 }
 
                 Item item = rebel.Inventory.FirstOrDefault(x => x.Template.Name == itemDTO.Name);
@@ -164,11 +162,9 @@ namespace Forcebook.Controllers
                 return BadRequest();
             }
 
-            Rebel rebel = _context.Rebels.FirstOrDefault(x => x.Name == request.Name);
-
-            if (rebel == null)
+            if (!TryGetRebel(request.Name, out Rebel rebel))
             {
-                return NotFound($"Unable to find rebel with name {request.Name}.");
+                return UnableToFindRebel(request.Name);
             }
 
             rebel.Location = request.Location;
@@ -197,14 +193,14 @@ namespace Forcebook.Controllers
                 return BadRequest();
             }
 
-            if (!_context.Rebels.Any(x => x.Name == request.Accuser))
+            if (!HasRebel(request.Accuser))
             {
-                return NotFound($"Unable to find rebel with name {request.Accuser}.");
+                return UnableToFindRebel(request.Accuser);
             }
 
-            if (!_context.Rebels.Any(x => x.Name == request.Accused))
+            if (!HasRebel(request.Accused))
             {
-                return NotFound($"Unable to find rebel with name {request.Accused}.");
+                return UnableToFindRebel(request.Accused);
             }
 
             TreasonReport report = _context.TreasonReports.FirstOrDefault(x => x.AccusedId == request.Accused && x.AccuserId == request.Accuser);
@@ -249,36 +245,32 @@ namespace Forcebook.Controllers
                 return BadRequest();
             }
 
-            Rebel rebelA = _context.Rebels.FirstOrDefault(x => x.Name == request.LegA.Name);
-
-            if (rebelA == null)
+            if (!TryGetRebel(request.LegA.Name, out Rebel rebelA))
             {
-                return NotFound($"Unable to find rebel with name {request.LegA.Name}.");
+                return UnableToFindRebel(request.LegA.Name);
             }
             else if (rebelA.IsTraitor)
             {
-                return BadRequest($"{request.LegA.Name} is a traitor, therefore banned from negotiating.");
+                return BannedRebel(request.LegA.Name);
             }
 
-            Rebel rebelB = _context.Rebels.FirstOrDefault(x => x.Name == request.LegB.Name);
-
-            if (rebelB == null)
+            if (!TryGetRebel(request.LegB.Name, out Rebel rebelB))
             {
-                return NotFound($"Unable to find rebel with name {request.LegB.Name}.");
+                return UnableToFindRebel(request.LegB.Name);
             }
             else if (rebelB.IsTraitor)
             {
-                return BadRequest($"{request.LegB.Name} is a traitor, therefore banned from negotiating.");
+                return BannedRebel(request.LegB.Name);
             }
 
-            if (!TryValidateAndGroup(request.LegA.Items, rebelA, out IEnumerable<ItemDTO> itemsA, out int pointsA, out string message))
+            if (!TryValidateAndGroup(request.LegA.Items, rebelA, out IEnumerable<ItemDTO> itemsA, out int pointsA, out ObjectResult result))
             {
-                return BadRequest(message);
+                return result;
             }
 
-            if (!TryValidateAndGroup(request.LegB.Items, rebelB, out IEnumerable<ItemDTO> itemsB, out int pointsB, out message))
+            if (!TryValidateAndGroup(request.LegB.Items, rebelB, out IEnumerable<ItemDTO> itemsB, out int pointsB, out result))
             {
-                return BadRequest(message);
+                return result;
             }
 
             if (pointsA != pointsB)
@@ -308,23 +300,26 @@ namespace Forcebook.Controllers
             return Ok(response);
         }
 
-        protected bool TryValidateAndGroup(IEnumerable<ItemDTO> itemsDTO, Rebel owner, out IEnumerable<ItemDTO> groupedItems, out int points, out string message)
+        private BadRequestObjectResult BannedRebel(string traitor)
+        {
+            return BadRequest($"{traitor} is a traitor, therefore banned from negotiating.");
+        }
+
+        private bool TryValidateAndGroup(IEnumerable<ItemDTO> itemsDTO, Rebel owner, out IEnumerable<ItemDTO> groupedItems, out int points, out ObjectResult result)
         {
             Dictionary<string, ItemDTO> itemsDict = new Dictionary<string, ItemDTO>();
 
             points = 0;
 
-            message = string.Empty;
+            result = null;
 
             foreach (ItemDTO itemDTO in itemsDTO)
             {
-                ItemTemplate template = _context.ItemTemplates.FirstOrDefault(x => x.Name == itemDTO.Name);
-
-                if (template == null)
+                if (!TryGetItemTemplate(itemDTO.Name, out ItemTemplate template))
                 {
                     groupedItems = null;
 
-                    message = $"Unable to find item with name {itemDTO.Name}.";
+                    result = ItemTemplateNotFound(itemDTO.Name);
 
                     return false;
                 }
@@ -346,7 +341,7 @@ namespace Forcebook.Controllers
                 {
                     groupedItems = null;
 
-                    message = $"{owner.Name} does not have enough {itemDTO.Name}.";
+                    result = BadRequest($"{owner.Name} does not have enough {itemDTO.Name}.");
 
                     return false;
                 }
@@ -359,7 +354,7 @@ namespace Forcebook.Controllers
             return true;
         }
     
-        protected void ProcessTransaction(IEnumerable<ItemDTO> toRemove, IEnumerable<ItemDTO> toAdd, Rebel owner)
+        private void ProcessTransaction(IEnumerable<ItemDTO> toRemove, IEnumerable<ItemDTO> toAdd, Rebel owner)
         {
             foreach (ItemDTO item in toRemove)
             {
@@ -408,6 +403,35 @@ namespace Forcebook.Controllers
                     _context.Entry(inInventory).State = EntityState.Modified;
                 }
             }
+        }
+    
+        private bool TryGetRebel(string name, out Rebel rebel)
+        {
+            rebel = _context.Rebels.FirstOrDefault(x => x.Name == name);
+
+            return rebel != null;
+        }
+
+        private bool HasRebel(string name)
+        {
+            return _context.Rebels.Any(x => x.Name == name);
+        }
+
+        private NotFoundObjectResult UnableToFindRebel(string name)
+        {
+            return NotFound($"Unable to find rebel named {name}.");
+        }
+
+        private bool TryGetItemTemplate(string name, out ItemTemplate template)
+        {
+            template = _context.ItemTemplates.FirstOrDefault(x => x.Name == name);
+
+            return template != null;
+        }
+
+        private NotFoundObjectResult ItemTemplateNotFound(string name)
+        {
+            return NotFound($"Unable to find item named {name}.");
         }
     }
 }
